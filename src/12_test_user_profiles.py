@@ -1,6 +1,10 @@
 from importlib.machinery import SourceFileLoader
 
-# Load the final recommender
+
+# ============================================================
+# 1. LOAD FINAL RECOMMENDER
+# ============================================================
+
 recommender = SourceFileLoader(
     "recommender",
     "src/11_final_recommender.py"
@@ -10,7 +14,7 @@ recommend_games = recommender.recommend_games
 
 
 # ============================================================
-# PROFILE 1 - FPS / COMPETITIVE
+# 2. PROFILE 1 - FPS / COMPETITIVE
 # ============================================================
 
 profile_1_games = [
@@ -32,7 +36,7 @@ profile_1_tags = [
 
 
 # ============================================================
-# PROFILE 2 - RPG / ADVENTURE
+# 3. PROFILE 2 - RPG / ADVENTURE
 # ============================================================
 
 profile_2_games = [
@@ -52,11 +56,11 @@ profile_2_tags = [
 
 
 # ============================================================
-# PROFILE 3 - STRATEGY / CASUAL
+# 4. PROFILE 3 - STRATEGY / SIMULATION
 # ============================================================
 
 profile_3_games = [
-    "Civilization VI"
+    "Countryballs at War"
 ]
 
 profile_3_genres = [
@@ -65,14 +69,13 @@ profile_3_genres = [
 ]
 
 profile_3_tags = [
-    "Turn-Based",
     "Strategy",
     "Singleplayer"
 ]
 
 
 # ============================================================
-# TEST FUNCTION
+# 5. TEST PROFILE FUNCTION
 # ============================================================
 
 def test_profile(
@@ -82,11 +85,21 @@ def test_profile(
     tags
 ):
 
-    print("\n========================================")
-    print(profile_name)
-    print("========================================")
+    print(
+        "\n========================================"
+    )
 
-    print("\nPlayed games:")
+    print(
+        profile_name
+    )
+
+    print(
+        "========================================"
+    )
+
+    print(
+        "\nPlayed games:"
+    )
 
     for game in played_games:
         print("-", game)
@@ -98,7 +111,17 @@ def test_profile(
         top_k=5
     )
 
-    print("\nRecommendations:")
+    print(
+        "\nRecommendations:"
+    )
+
+    if len(recommendations) == 0:
+
+        print(
+            "No recommendations generated."
+        )
+
+        return
 
     for number, recommendation in enumerate(
         recommendations,
@@ -108,13 +131,12 @@ def test_profile(
         print(
             f"{number}. "
             f"{recommendation['name']} "
-            f"-> "
-            f"{recommendation['score']}"
+            f"-> {recommendation['score']}"
         )
 
 
 # ============================================================
-# RUN TESTS
+# 6. RUN PROFILE TESTS
 # ============================================================
 
 test_profile(
@@ -124,7 +146,6 @@ test_profile(
     profile_1_tags
 )
 
-
 test_profile(
     "PROFILE 2 - RPG / ADVENTURE",
     profile_2_games,
@@ -132,14 +153,17 @@ test_profile(
     profile_2_tags
 )
 
-
 test_profile(
-    "PROFILE 3 - STRATEGY / CASUAL",
+    "PROFILE 3 - STRATEGY / SIMULATION",
     profile_3_games,
     profile_3_genres,
     profile_3_tags
 )
 
+
+# ============================================================
+# 7. COMPLETE
+# ============================================================
 
 print(
     "\n========================================"
