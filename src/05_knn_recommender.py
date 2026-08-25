@@ -3,25 +3,37 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.neighbors import NearestNeighbors
 
 
-# =========================================================
+# ============================================================
 # 1. LOAD DATASET
-# =========================================================
+# ============================================================
 
 games = pd.read_csv("dataset/games.csv", index_col=False)
 
-# The CSV contains an extra index column.
-# Remove it if present.
-if len(games.columns) > 39:
-    games = games.iloc[:, 1:]
-
 print("Dataset shape:", games.shape)
+print("Number of games:", len(games))
 
 
-# =========================================================
-# 2. CHECK / CLEAN COLUMNS
-# =========================================================
+# ============================================================
+# 2. BASIC CLEANING
+# ============================================================
 
-games["Name"] = games["Name"].fillna("").astype(str).str.strip()
+games["AppID"] = games["AppID"].astype(str)
+
+games["Name"] = (
+    games["Name"]
+    .fillna("")
+    .astype(str)
+    .str.strip()
+)
+
+# Remove unnecessary column
+if "Movies" in games.columns:
+    games = games.drop(columns=["Movies"])
+
+
+# ============================================================
+# 3. CLEAN TEXT FEATURES
+# ============================================================
 
 features = [
     "About the game",
@@ -31,42 +43,82 @@ features = [
 ]
 
 for column in features:
-    games[column] = games[column].fillna("").astype(str)
+
+    if column in games.columns:
+
+        games[column] = (
+            games[column]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        # Remove placeholder values
+        games[column] = games[column].replace(
+            ["0", "0.0", "nan", "None"],
+            "",
+            regex=False
+        )
 
 
-# =========================================================
-# 3. CREATE COMBINED FEATURES
-# =========================================================
+# ============================================================
+# 4. CREATE COMBINED FEATURES
+# ============================================================
 
 games["combined_features"] = (
-    games["About the game"] + " " +
+    games["Name"] + " " +
+    games["Name"] + " " +
     games["Genres"] + " " +
     games["Tags"] + " " +
-    games["Categories"]
+    games["Categories"] + " " +
+    games["About the game"]
 )
 
-print("Number of games:", len(games))
+
+# ============================================================
+# 5. REMOVE EMPTY FEATURES
+# ============================================================
+
+games["combined_features"] = (
+    games["combined_features"]
+    .str.replace(r"\s+", " ", regex=True)
+    .str.strip()
+)
 
 
-# =========================================================
-# 4. TF-IDF
-# =========================================================
+# ============================================================
+# 6. SHOW FEATURE EXAMPLES
+# ============================================================
+
+print("\nSample combined features:")
+
+print(
+    games[["Name", "combined_features"]]
+    .head(5)
+    .to_string(index=False)
+)
+
+
+# ============================================================
+# 7. TF-IDF
+# ============================================================
 
 tfidf = TfidfVectorizer(
     stop_words="english",
-    max_features=5000
+    max_features=10000,
+    ngram_range=(1, 2)
 )
 
 tfidf_matrix = tfidf.fit_transform(
     games["combined_features"]
 )
 
-print("TF-IDF matrix shape:", tfidf_matrix.shape)
+print("\nTF-IDF matrix shape:", tfidf_matrix.shape)
 
 
-# =========================================================
-# 5. KNN MODEL
-# =========================================================
+# ============================================================
+# 8. KNN MODEL
+# ============================================================
 
 knn = NearestNeighbors(
     n_neighbors=6,
@@ -77,9 +129,9 @@ knn = NearestNeighbors(
 knn.fit(tfidf_matrix)
 
 
-# =========================================================
-# 6. RECOMMENDATION FUNCTION
-# =========================================================
+# ============================================================
+# 9. RECOMMENDATION FUNCTION
+# ============================================================
 
 def recommend_game(game_name):
 
@@ -87,27 +139,31 @@ def recommend_game(game_name):
         games["Name"].str.lower() == game_name.lower()
     ]
 
-    # Try partial search if exact match fails
-    if matches.empty:
-        matches = games[
-            games["Name"].str.lower().str.contains(
-                game_name.lower(),
-                na=False
-            )
-        ]
-
     if matches.empty:
         print("\nGame not found.")
         return
 
     game_index = matches.index[0]
 
-    print("\nSelected Game:")
-    print(games.loc[game_index, "Name"])
+    # Check whether the selected game has useful information
+    feature_text = games.loc[
+        game_index, "combined_features"
+    ]
+
+    if len(feature_text.strip()) < 10:
+
+        print("\nWarning:")
+        print("This game has very little metadata.")
+        print("Try another game with more information.")
+        return
 
     distances, indices = knn.kneighbors(
-        tfidf_matrix[game_index]
+        tfidf_matrix[game_index],
+        n_neighbors=6
     )
+
+    print("\nSelected Game:")
+    print(games.loc[game_index, "Name"])
 
     print("\nRecommended Games:")
     print("------------------")
@@ -121,15 +177,44 @@ def recommend_game(game_name):
         print(
             f"{i}. "
             f"{games.iloc[recommended_index]['Name']} "
-            f"(Similarity: {similarity:.2f})"
+            f"(Similarity: {similarity:.4f})"
         )
 
 
-# =========================================================
-# 7. TEST
-# =========================================================
+# ============================================================
+# 10. DISPLAY FIRST FEW GAMES
+# ============================================================
 
-print("\nFirst 3 games:")
-print(games[["AppID", "Name", "Release date"]].head(3))
+print("\nFirst 5 games:")
 
-recommend_game("Black Dragon Mage Playtest")
+print(
+    games[
+        ["AppID", "Name", "Release date"]
+    ].head(5)
+)
+
+
+# ============================================================
+# 11. FIND A GAME WITH GOOD METADATA FOR TESTING
+# ============================================================
+
+games_with_features = games[
+    games["combined_features"].str.len() > 100
+]
+
+print("\nGames with useful metadata:",
+      len(games_with_features))
+
+
+if len(games_with_features) > 0:
+
+    test_game = games_with_features.iloc[0]["Name"]
+
+    print("\nTest game:")
+    print(test_game)
+
+    recommend_game(test_game)
+
+else:
+
+    print("\nNo suitable test game found.")
