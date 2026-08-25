@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.neighbors import NearestNeighbors
+from sklearn.metrics.pairwise import cosine_similarity
 
 
 # ============================================================
@@ -19,22 +19,8 @@ print("Dataset shape:", games.shape)
 
 
 # ============================================================
-# 2. CHECK IMPORTANT COLUMNS
+# 2. CLEAN GAME NAMES
 # ============================================================
-
-print("\nFirst 5 games:")
-print(
-    games[["AppID", "Name", "Release date"]]
-    .head()
-    .to_string(index=False)
-)
-
-
-# ============================================================
-# 3. CLEAN DATA
-# ============================================================
-
-games["AppID"] = games["AppID"].astype(str)
 
 games["Name"] = (
     games["Name"]
@@ -43,14 +29,19 @@ games["Name"] = (
     .str.strip()
 )
 
-features = [
+
+# ============================================================
+# 3. TEXT FEATURES
+# ============================================================
+
+text_columns = [
     "About the game",
     "Genres",
     "Tags",
     "Categories"
 ]
 
-for column in features:
+for column in text_columns:
     games[column] = (
         games[column]
         .fillna("")
@@ -59,7 +50,7 @@ for column in features:
 
 
 # ============================================================
-# 4. CREATE COMBINED GAME FEATURES
+# 4. COMBINE GAME INFORMATION
 # ============================================================
 
 games["combined_features"] = (
@@ -69,16 +60,16 @@ games["combined_features"] = (
     games["Categories"]
 )
 
-# Remove games without useful information
-games = games[
-    games["combined_features"].str.strip() != ""
-].reset_index(drop=True)
-
-print("\nGames with useful metadata:", len(games))
+print("\nExample combined features:")
+print(
+    games[["Name", "combined_features"]]
+    .head(3)
+    .to_string(index=False)
+)
 
 
 # ============================================================
-# 5. TF-IDF FEATURE ENGINEERING
+# 5. TF-IDF
 # ============================================================
 
 tfidf = TfidfVectorizer(
@@ -90,139 +81,133 @@ tfidf_matrix = tfidf.fit_transform(
     games["combined_features"]
 )
 
-print(
-    "TF-IDF matrix shape:",
-    tfidf_matrix.shape
+print("\nTF-IDF matrix shape:", tfidf_matrix.shape)
+
+
+# ============================================================
+# 6. CLEAN NUMERIC FEATURES
+# ============================================================
+
+numeric_columns = [
+    "Positive",
+    "Negative",
+    "Metacritic score",
+    "User score",
+    "Average playtime forever",
+    "Average playtime two weeks"
+]
+
+for column in numeric_columns:
+    games[column] = pd.to_numeric(
+        games[column],
+        errors="coerce"
+    ).fillna(0)
+
+
+# ============================================================
+# 7. REVIEW QUALITY SCORE
+# ============================================================
+
+total_reviews = (
+    games["Positive"] +
+    games["Negative"]
+)
+
+games["positive_ratio"] = np.where(
+    total_reviews > 0,
+    games["Positive"] / total_reviews,
+    0
+)
+
+games["review_strength"] = np.log1p(
+    total_reviews
+)
+
+max_strength = games["review_strength"].max()
+
+if max_strength > 0:
+    games["review_strength"] = (
+        games["review_strength"] /
+        max_strength
+    )
+
+games["quality_score"] = (
+    games["positive_ratio"] *
+    games["review_strength"]
 )
 
 
 # ============================================================
-# 6. CREATE KNN MODEL
+# 8. USER PROFILE
 # ============================================================
 
-knn = NearestNeighbors(
-    n_neighbors=6,
-    metric="cosine",
-    algorithm="brute"
-)
+user_profile = {
 
-knn.fit(tfidf_matrix)
+    "name": "User",
 
+    "games_played": [
+        "Counter-Strike 2",
+        "PUBG: BATTLEGROUNDS"
+    ],
 
-# ============================================================
-# 7. USER PROFILE
-# ============================================================
+    "preferred_genres": [
+        "Action",
+        "Shooter",
+        "Multiplayer"
+    ],
 
-user_name = "User"
-
-played_games = [
-    "Counter-Strike 2",
-    "PUBG: BATTLEGROUNDS"
-]
-
-preferred_genres = [
-    "Action",
-    "Shooter",
-    "Multiplayer"
-]
-
-preferred_tags = [
-    "FPS",
-    "Competitive",
-    "Online Multiplayer"
-]
+    "preferred_tags": [
+        "FPS",
+        "Competitive",
+        "Online Multiplayer"
+    ]
+}
 
 
 # ============================================================
-# 8. DISPLAY USER PROFILE
+# 9. DISPLAY USER PROFILE
 # ============================================================
 
 print("\n================ USER PROFILE ================")
 
-print("User:", user_name)
+print("User:", user_profile["name"])
 
 print("\nGames Played:")
 
-for game in played_games:
+for game in user_profile["games_played"]:
     print("-", game)
 
 print("\nPreferred Genres:")
 
-for genre in preferred_genres:
+for genre in user_profile["preferred_genres"]:
     print("-", genre)
 
 print("\nPreferred Tags:")
 
-for tag in preferred_tags:
+for tag in user_profile["preferred_tags"]:
     print("-", tag)
-
-
-# ============================================================
-# 9. NORMALIZE GAME NAMES
-# ============================================================
-
-def normalize_name(name):
-    return (
-        str(name)
-        .lower()
-        .replace(":", "")
-        .replace("-", " ")
-        .replace("_", " ")
-        .strip()
-    )
-
-
-games["normalized_name"] = games["Name"].apply(
-    normalize_name
-)
 
 
 # ============================================================
 # 10. FIND PLAYED GAMES
 # ============================================================
 
-matched_indices = []
+played_indices = []
 
 print("\n================ GAME CHECK ================")
 
-for played_game in played_games:
+for played_game in user_profile["games_played"]:
 
-    target = normalize_name(played_game)
-
-    # First try exact matching
     matches = games[
-        games["normalized_name"] == target
+        games["Name"].str.lower() ==
+        played_game.lower()
     ]
 
-    # If exact match fails, try partial matching
-    if matches.empty:
-
-        matches = games[
-            games["normalized_name"].str.contains(
-                target,
-                regex=False,
-                na=False
-            )
-        ]
-
-    # Try matching important words if still not found
-    if matches.empty:
-
-        words = target.split()
-
-        if len(words) >= 2:
-
-            matches = games[
-                games["normalized_name"].apply(
-                    lambda x: all(word in x for word in words)
-                )
-            ]
-
-    if not matches.empty:
+    if len(matches) > 0:
 
         index = matches.index[0]
 
-        matched_indices.append(index)
+        played_indices.append(index)
 
         print(
             "Found:",
@@ -241,15 +226,15 @@ for played_game in played_games:
 
 print(
     "\nNumber of matched games:",
-    len(matched_indices)
+    len(played_indices)
 )
 
 
 # ============================================================
-# 11. STOP IF NO GAMES WERE FOUND
+# 11. CREATE PERSONALIZED RECOMMENDATIONS
 # ============================================================
 
-if len(matched_indices) == 0:
+if len(played_indices) == 0:
 
     print(
         "\nNo played games were found in the dataset."
@@ -261,97 +246,162 @@ if len(matched_indices) == 0:
 
 else:
 
-    # ========================================================
-    # 12. CREATE USER PROFILE VECTOR
-    # ========================================================
+    # --------------------------------------------------------
+    # USER PROFILE VECTOR
+    # --------------------------------------------------------
 
-    played_vectors = tfidf_matrix[
-        matched_indices
+    user_profile_vector = tfidf_matrix[
+        played_indices
+    ].mean(axis=0)
+
+    user_profile_vector = np.asarray(
+        user_profile_vector
+    )
+
+
+    # --------------------------------------------------------
+    # CONTENT SIMILARITY
+    # --------------------------------------------------------
+
+    similarities = cosine_similarity(
+        user_profile_vector,
+        tfidf_matrix
+    ).flatten()
+
+
+    # --------------------------------------------------------
+    # USER PREFERENCE MATCH
+    # --------------------------------------------------------
+
+    preference_scores = []
+
+    preferred_genres = [
+        x.lower()
+        for x in user_profile["preferred_genres"]
     ]
 
-    # Average the features of played games
-    user_vector = played_vectors.mean(
-        axis=0
-    )
+    preferred_tags = [
+        x.lower()
+        for x in user_profile["preferred_tags"]
+    ]
 
-    user_vector = np.asarray(
-        user_vector
-    ).reshape(1, -1)
+    for index, row in games.iterrows():
 
+        text = (
+            str(row["Genres"]) + " " +
+            str(row["Tags"]) + " " +
+            str(row["Categories"])
+        ).lower()
 
-    # ========================================================
-    # 13. ADD USER PREFERENCES
-    # ========================================================
-
-    preference_text = (
-        " ".join(preferred_genres) + " " +
-        " ".join(preferred_tags)
-    )
-
-    preference_vector = tfidf.transform(
-        [preference_text]
-    )
-
-
-    # Combine played-game profile and preferences
-    user_profile = (
-        user_vector * 0.7 +
-        preference_vector.toarray() * 0.3
-    )
-
-
-    # ========================================================
-    # 14. CREATE PERSONALIZED KNN SEARCH
-    # ========================================================
-
-    distances, indices = knn.kneighbors(
-        user_profile,
-        n_neighbors=20
-    )
-
-
-    # ========================================================
-    # 15. DISPLAY RECOMMENDATIONS
-    # ========================================================
-
-    print(
-        "\n================ PERSONALIZED RECOMMENDATIONS ================"
-    )
-
-    recommendation_count = 0
-
-    for i in range(len(indices[0])):
-
-        index = indices[0][i]
-
-        # Don't recommend already played games
-        if index in matched_indices:
-            continue
-
-        game_name = games.loc[
-            index,
-            "Name"
-        ]
-
-        distance = distances[0][i]
-
-        similarity = 1 - distance
-
-        recommendation_count += 1
-
-        print(
-            f"{recommendation_count}. "
-            f"{game_name} "
-            f"(Similarity: {similarity:.4f})"
+        genre_matches = sum(
+            genre in text
+            for genre in preferred_genres
         )
 
-        if recommendation_count == 5:
-            break
+        tag_matches = sum(
+            tag in text
+            for tag in preferred_tags
+        )
+
+        total_preferences = (
+            len(preferred_genres) +
+            len(preferred_tags)
+        )
+
+        if total_preferences > 0:
+
+            preference_score = (
+                genre_matches +
+                tag_matches
+            ) / total_preferences
+
+        else:
+
+            preference_score = 0
+
+        preference_scores.append(
+            preference_score
+        )
 
 
-    # ========================================================
-    # 16. PROFILE SUMMARY
-    # ========================================================
+    preference_scores = np.array(
+        preference_scores
+    )
+
+
+    # --------------------------------------------------------
+    # QUALITY SCORE
+    # --------------------------------------------------------
+
+    quality_scores = games[
+        "quality_score"
+    ].values
+
+    max_quality = quality_scores.max()
+
+    if max_quality > 0:
+
+        quality_scores = (
+            quality_scores /
+            max_quality
+        )
+
+
+    # --------------------------------------------------------
+    # FINAL SCORE
+    # --------------------------------------------------------
+
+    final_scores = (
+
+        0.70 * similarities +
+
+        0.20 * preference_scores +
+
+        0.10 * quality_scores
+
+    )
+
+
+    # --------------------------------------------------------
+    # REMOVE PLAYED GAMES
+    # --------------------------------------------------------
+
+    final_scores[played_indices] = -1
+
+
+    # --------------------------------------------------------
+    # TOP 5 RECOMMENDATIONS
+    # --------------------------------------------------------
+
+    top_indices = np.argsort(
+        final_scores
+    )[::-1][:5]
+
+
+    # --------------------------------------------------------
+    # DISPLAY RECOMMENDATIONS
+    # --------------------------------------------------------
+
+    print(
+        "\n================ PERSONALIZED "
+        "RECOMMENDATIONS ================"
+    )
+
+    for number, index in enumerate(
+        top_indices,
+        start=1
+    ):
+
+        print(
+            f"{number}. "
+            f"{games.loc[index, 'Name']} "
+            f"(Score: {final_scores[index]:.4f})"
+        )
+
+
+    # --------------------------------------------------------
+    # PROFILE SUMMARY
+    # --------------------------------------------------------
 
     print(
         "\n================ PROFILE SUMMARY ================"
@@ -359,20 +409,24 @@ else:
 
     print(
         "User:",
-        user_name
+        user_profile["name"]
     )
 
     print(
         "Played games:",
-        len(matched_indices)
+        len(user_profile["games_played"])
     )
 
     print(
         "Preferred genres:",
-        ", ".join(preferred_genres)
+        ", ".join(
+            user_profile["preferred_genres"]
+        )
     )
 
     print(
         "Preferred tags:",
-        ", ".join(preferred_tags)
+        ", ".join(
+            user_profile["preferred_tags"]
+        )
     )
