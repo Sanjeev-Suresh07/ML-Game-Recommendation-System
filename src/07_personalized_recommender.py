@@ -31,7 +31,7 @@ games["Name"] = (
 
 
 # ============================================================
-# 3. TEXT FEATURES
+# 3. CLEAN TEXT COLUMNS
 # ============================================================
 
 text_columns = [
@@ -42,29 +42,29 @@ text_columns = [
 ]
 
 for column in text_columns:
+
     games[column] = (
         games[column]
         .fillna("")
         .astype(str)
+        .str.strip()
     )
 
 
 # ============================================================
-# 4. COMBINE GAME INFORMATION
+# 4. CREATE CONTENT FEATURES
 # ============================================================
 
+# Give Genres and Tags extra importance.
+
 games["combined_features"] = (
-    games["About the game"] + " " +
+    games["Name"] + " " +
+    games["Genres"] + " " +
     games["Genres"] + " " +
     games["Tags"] + " " +
-    games["Categories"]
-)
-
-print("\nExample combined features:")
-print(
-    games[["Name", "combined_features"]]
-    .head(3)
-    .to_string(index=False)
+    games["Tags"] + " " +
+    games["Categories"] + " " +
+    games["About the game"]
 )
 
 
@@ -74,30 +74,31 @@ print(
 
 tfidf = TfidfVectorizer(
     stop_words="english",
-    max_features=10000
+    max_features=10000,
+    ngram_range=(1, 2)
 )
 
 tfidf_matrix = tfidf.fit_transform(
     games["combined_features"]
 )
 
-print("\nTF-IDF matrix shape:", tfidf_matrix.shape)
+print(
+    "TF-IDF matrix shape:",
+    tfidf_matrix.shape
+)
 
 
 # ============================================================
-# 6. CLEAN NUMERIC FEATURES
+# 6. CLEAN REVIEW DATA
 # ============================================================
 
-numeric_columns = [
+review_columns = [
     "Positive",
-    "Negative",
-    "Metacritic score",
-    "User score",
-    "Average playtime forever",
-    "Average playtime two weeks"
+    "Negative"
 ]
 
-for column in numeric_columns:
+for column in review_columns:
+
     games[column] = pd.to_numeric(
         games[column],
         errors="coerce"
@@ -113,6 +114,10 @@ total_reviews = (
     games["Negative"]
 )
 
+games["has_reviews"] = (
+    total_reviews > 0
+)
+
 games["positive_ratio"] = np.where(
     total_reviews > 0,
     games["Positive"] / total_reviews,
@@ -126,6 +131,7 @@ games["review_strength"] = np.log1p(
 max_strength = games["review_strength"].max()
 
 if max_strength > 0:
+
     games["review_strength"] = (
         games["review_strength"] /
         max_strength
@@ -203,7 +209,7 @@ for played_game in user_profile["games_played"]:
         played_game.lower()
     ]
 
-    if len(matches) > 0:
+    if not matches.empty:
 
         index = matches.index[0]
 
@@ -231,160 +237,347 @@ print(
 
 
 # ============================================================
-# 11. CREATE PERSONALIZED RECOMMENDATIONS
+# 11. CREATE USER PROFILE VECTOR
 # ============================================================
 
 if len(played_indices) == 0:
 
-    print(
-        "\nNo played games were found in the dataset."
-    )
-
-    print(
-        "Cannot create personalized recommendations."
-    )
+    print("\nNo played games found.")
 
 else:
 
-    # --------------------------------------------------------
-    # USER PROFILE VECTOR
-    # --------------------------------------------------------
-
-    user_profile_vector = tfidf_matrix[
+    user_vector = tfidf_matrix[
         played_indices
     ].mean(axis=0)
 
-    user_profile_vector = np.asarray(
-        user_profile_vector
+    user_vector = np.asarray(
+        user_vector
     )
 
 
-    # --------------------------------------------------------
-    # CONTENT SIMILARITY
-    # --------------------------------------------------------
+    # ========================================================
+    # 12. CONTENT SIMILARITY
+    # ========================================================
 
-    similarities = cosine_similarity(
-        user_profile_vector,
+    content_scores = cosine_similarity(
+        user_vector,
         tfidf_matrix
     ).flatten()
 
 
-    # --------------------------------------------------------
-    # USER PREFERENCE MATCH
-    # --------------------------------------------------------
-
-    preference_scores = []
+    # ========================================================
+    # 13. USER PREFERENCE MATCH
+    # ========================================================
 
     preferred_genres = [
-        x.lower()
+        x.lower().strip()
         for x in user_profile["preferred_genres"]
     ]
 
     preferred_tags = [
-        x.lower()
+        x.lower().strip()
         for x in user_profile["preferred_tags"]
     ]
 
-    for index, row in games.iterrows():
+    genre_scores = []
+    tag_scores = []
+    preference_scores = []
 
-        text = (
-            str(row["Genres"]) + " " +
-            str(row["Tags"]) + " " +
-            str(row["Categories"])
-        ).lower()
+
+    for _, row in games.iterrows():
+
+        # Get actual genre and tag text
+        genres = str(row["Genres"]).lower()
+        tags = str(row["Tags"]).lower()
+
+        # Convert comma-separated values into lists
+        game_genres = [
+            x.strip()
+            for x in genres.split(",")
+            if x.strip()
+        ]
+
+        game_tags = [
+            x.strip()
+            for x in tags.split(",")
+            if x.strip()
+        ]
+
+
+        # ----------------------------------------------------
+        # Genre matching
+        # ----------------------------------------------------
 
         genre_matches = sum(
-            genre in text
+            genre in game_genres
             for genre in preferred_genres
         )
 
-        tag_matches = sum(
-            tag in text
-            for tag in preferred_tags
-        )
+        if len(preferred_genres) > 0:
 
-        total_preferences = (
-            len(preferred_genres) +
-            len(preferred_tags)
-        )
-
-        if total_preferences > 0:
-
-            preference_score = (
-                genre_matches +
-                tag_matches
-            ) / total_preferences
+            genre_score = (
+                genre_matches /
+                len(preferred_genres)
+            )
 
         else:
 
-            preference_score = 0
+            genre_score = 0
+
+
+        # ----------------------------------------------------
+        # Tag matching
+        # ----------------------------------------------------
+
+        tag_matches = sum(
+            tag in game_tags
+            for tag in preferred_tags
+        )
+
+        if len(preferred_tags) > 0:
+
+            tag_score = (
+                tag_matches /
+                len(preferred_tags)
+            )
+
+        else:
+
+            tag_score = 0
+
+
+        # ----------------------------------------------------
+        # Combined preference score
+        # ----------------------------------------------------
+
+        preference_score = (
+            0.6 * genre_score +
+            0.4 * tag_score
+        )
+
+        genre_scores.append(
+            genre_score
+        )
+
+        tag_scores.append(
+            tag_score
+        )
 
         preference_scores.append(
             preference_score
         )
 
 
+    genre_scores = np.array(
+        genre_scores
+    )
+
+    tag_scores = np.array(
+        tag_scores
+    )
+
     preference_scores = np.array(
         preference_scores
     )
 
 
-    # --------------------------------------------------------
-    # QUALITY SCORE
-    # --------------------------------------------------------
+    # ========================================================
+    # 14. QUALITY SCORE
+    # ========================================================
 
     quality_scores = games[
         "quality_score"
+    ].values.copy()
+
+    has_reviews = games[
+        "has_reviews"
     ].values
 
-    max_quality = quality_scores.max()
 
-    if max_quality > 0:
+    # Normalize only games with reviews
 
-        quality_scores = (
-            quality_scores /
-            max_quality
-        )
+    reviewed_quality = quality_scores[
+        has_reviews
+    ]
+
+    if len(reviewed_quality) > 0:
+
+        max_quality = reviewed_quality.max()
+
+        if max_quality > 0:
+
+            quality_scores[
+                has_reviews
+            ] = (
+                quality_scores[
+                    has_reviews
+                ] / max_quality
+            )
 
 
-    # --------------------------------------------------------
-    # FINAL SCORE
-    # --------------------------------------------------------
+    # ========================================================
+    # 15. FINAL SCORE
+    # ========================================================
+
+    # Main signal: content similarity
+    # Secondary: user preferences
+    # Small bonus: review quality
 
     final_scores = (
-
-        0.70 * similarities +
-
-        0.20 * preference_scores +
-
-        0.10 * quality_scores
-
+        0.70 * content_scores +
+        0.25 * preference_scores
     )
 
 
-    # --------------------------------------------------------
-    # REMOVE PLAYED GAMES
-    # --------------------------------------------------------
+    # Add review score ONLY where review data exists
 
-    final_scores[played_indices] = -1
+    final_scores += np.where(
+        has_reviews,
+        0.05 * quality_scores,
+        0
+    )
 
 
-    # --------------------------------------------------------
-    # TOP 5 RECOMMENDATIONS
-    # --------------------------------------------------------
+    # ========================================================
+    # 16. REMOVE ALREADY PLAYED GAMES
+    # ========================================================
+
+    final_scores[
+        played_indices
+    ] = -1
+
+
+    # ========================================================
+    # 17. GET TOP RECOMMENDATIONS
+    # ========================================================
 
     top_indices = np.argsort(
         final_scores
     )[::-1][:5]
 
 
-    # --------------------------------------------------------
-    # DISPLAY RECOMMENDATIONS
-    # --------------------------------------------------------
+    # ========================================================
+    # 18. DISPLAY RECOMMENDATIONS
+    # ========================================================
 
     print(
-        "\n================ PERSONALIZED "
-        "RECOMMENDATIONS ================"
+        "\n================ RECOMMENDATIONS ================"
+    )
+
+
+    for number, index in enumerate(
+        top_indices,
+        start=1
+    ):
+
+        print(
+            f"\n{number}. "
+            f"{games.loc[index, 'Name']}"
+        )
+
+        print(
+            f"   Content similarity : "
+            f"{content_scores[index]:.4f}"
+        )
+
+        print(
+            f"   Genre match        : "
+            f"{genre_scores[index]:.4f}"
+        )
+
+        print(
+            f"   Tag match          : "
+            f"{tag_scores[index]:.4f}"
+        )
+
+        print(
+            f"   Preference score   : "
+            f"{preference_scores[index]:.4f}"
+        )
+
+
+        if has_reviews[index]:
+
+            print(
+                f"   Review quality     : "
+                f"{quality_scores[index]:.4f}"
+            )
+
+        else:
+
+            print(
+                "   Review quality     : N/A"
+            )
+
+
+        print(
+            f"   FINAL SCORE        : "
+            f"{final_scores[index]:.4f}"
+        )
+
+
+        # ----------------------------------------------------
+        # Recommendation explanation
+        # ----------------------------------------------------
+
+        reasons = []
+
+
+        if content_scores[index] >= 0.50:
+
+            reasons.append(
+                "similar game content"
+            )
+
+
+        if genre_scores[index] > 0:
+
+            reasons.append(
+                "preferred genre"
+            )
+
+
+        if tag_scores[index] > 0:
+
+            reasons.append(
+                "preferred tag"
+            )
+
+
+        if has_reviews[index]:
+
+            reasons.append(
+                "review data available"
+            )
+
+
+        print(
+            "   Why recommended:"
+        )
+
+
+        if reasons:
+
+            for reason in reasons:
+
+                print(
+                    "   ✓",
+                    reason
+                )
+
+        else:
+
+            print(
+                "   ✓ content similarity"
+            )
+
+
+    # ========================================================
+    # 19. RANKING CHECK
+    # ========================================================
+
+    print(
+        "\n================ RANKING CHECK ================"
     )
 
     for number, index in enumerate(
@@ -395,13 +588,13 @@ else:
         print(
             f"{number}. "
             f"{games.loc[index, 'Name']} "
-            f"(Score: {final_scores[index]:.4f})"
+            f"-> {final_scores[index]:.4f}"
         )
 
 
-    # --------------------------------------------------------
-    # PROFILE SUMMARY
-    # --------------------------------------------------------
+    # ========================================================
+    # 20. PROFILE SUMMARY
+    # ========================================================
 
     print(
         "\n================ PROFILE SUMMARY ================"
@@ -413,8 +606,8 @@ else:
     )
 
     print(
-        "Played games:",
-        len(user_profile["games_played"])
+        "Games played:",
+        len(played_indices)
     )
 
     print(
