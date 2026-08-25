@@ -24,15 +24,52 @@ print("Games available:", len(games))
 
 
 # ============================================================
-# 2. CLEAN GAME NAMES
+# 2. PREFERENCE MAPPING
 # ============================================================
 
-games["Name"] = (
-    games["Name"]
-    .fillna("")
-    .astype(str)
-    .str.strip()
-)
+preference_mapping = {
+
+    "action": [
+        "action"
+    ],
+
+    "shooter": [
+        "shooter",
+        "fps",
+        "first-person"
+    ],
+
+    "multiplayer": [
+        "multi-player",
+        "multiplayer",
+        "online multiplayer",
+        "online pvp",
+        "pvp",
+        "cross-platform multiplayer",
+        "co-op",
+        "online co-op"
+    ],
+
+    "fps": [
+        "fps",
+        "shooter",
+        "first-person"
+    ],
+
+    "competitive": [
+        "competitive",
+        "pvp",
+        "online pvp"
+    ],
+
+    "online multiplayer": [
+        "online multiplayer",
+        "online pvp",
+        "multi-player",
+        "multiplayer",
+        "cross-platform multiplayer"
+    ]
+}
 
 
 # ============================================================
@@ -46,7 +83,6 @@ def recommend_games(
     top_k=5
 ):
 
-    # Default preferences
     if preferred_genres is None:
         preferred_genres = []
 
@@ -55,7 +91,7 @@ def recommend_games(
 
 
     # --------------------------------------------------------
-    # Find games played by user
+    # Find played games
     # --------------------------------------------------------
 
     played_indices = []
@@ -84,7 +120,7 @@ def recommend_games(
 
 
     # --------------------------------------------------------
-    # Create user profile vector
+    # Create user profile
     # --------------------------------------------------------
 
     user_vector = tfidf_matrix[
@@ -107,7 +143,7 @@ def recommend_games(
 
 
     # --------------------------------------------------------
-    # Preference matching
+    # Normalize preferences
     # --------------------------------------------------------
 
     preferred_genres = [
@@ -121,7 +157,21 @@ def recommend_games(
     ]
 
 
+    all_preferences = (
+        preferred_genres +
+        preferred_tags
+    )
+
+
+    # --------------------------------------------------------
+    # Preference scoring
+    # --------------------------------------------------------
+
     preference_scores = []
+
+    genre_scores = []
+
+    tag_scores = []
 
 
     for _, row in games.iterrows():
@@ -134,26 +184,41 @@ def recommend_games(
             row["Tags"]
         ).lower()
 
-
-        # Convert comma-separated data
-        game_genres = [
-            x.strip()
-            for x in genres.split(",")
-            if x.strip()
-        ]
-
-        game_tags = [
-            x.strip()
-            for x in tags.split(",")
-            if x.strip()
-        ]
+        categories = str(
+            row["Categories"]
+        ).lower()
 
 
-        # Genre match
-        genre_matches = sum(
-            genre in game_genres
-            for genre in preferred_genres
+        # Combine metadata
+        metadata = (
+            genres + " " +
+            tags + " " +
+            categories
         )
+
+
+        # -----------------------------------------------
+        # Genre score
+        # -----------------------------------------------
+
+        genre_matches = 0
+
+        for preference in preferred_genres:
+
+            possible_matches = (
+                preference_mapping.get(
+                    preference,
+                    [preference]
+                )
+            )
+
+            if any(
+                value in metadata
+                for value in possible_matches
+            ):
+
+                genre_matches += 1
+
 
         if len(preferred_genres) > 0:
 
@@ -167,11 +232,28 @@ def recommend_games(
             genre_score = 0
 
 
-        # Tag match
-        tag_matches = sum(
-            tag in game_tags
-            for tag in preferred_tags
-        )
+        # -----------------------------------------------
+        # Tag score
+        # -----------------------------------------------
+
+        tag_matches = 0
+
+        for preference in preferred_tags:
+
+            possible_matches = (
+                preference_mapping.get(
+                    preference,
+                    [preference]
+                )
+            )
+
+            if any(
+                value in metadata
+                for value in possible_matches
+            ):
+
+                tag_matches += 1
+
 
         if len(preferred_tags) > 0:
 
@@ -185,10 +267,22 @@ def recommend_games(
             tag_score = 0
 
 
-        # Combined preference
+        # -----------------------------------------------
+        # Combined preference score
+        # -----------------------------------------------
+
         preference_score = (
             0.6 * genre_score +
             0.4 * tag_score
+        )
+
+
+        genre_scores.append(
+            genre_score
+        )
+
+        tag_scores.append(
+            tag_score
         )
 
         preference_scores.append(
@@ -198,6 +292,14 @@ def recommend_games(
 
     preference_scores = np.array(
         preference_scores
+    )
+
+    genre_scores = np.array(
+        genre_scores
+    )
+
+    tag_scores = np.array(
+        tag_scores
     )
 
 
@@ -226,9 +328,9 @@ def recommend_games(
 
     final_scores = (
 
-        0.70 * content_scores +
+        0.65 * content_scores +
 
-        0.25 * preference_scores +
+        0.30 * preference_scores +
 
         0.05 * quality_scores
 
@@ -245,11 +347,11 @@ def recommend_games(
 
 
     # --------------------------------------------------------
-    # Get more candidates
+    # Candidate games
     # --------------------------------------------------------
 
     candidate_count = min(
-        top_k * 3,
+        top_k * 5,
         len(games)
     )
 
@@ -259,7 +361,7 @@ def recommend_games(
 
 
     # --------------------------------------------------------
-    # Remove duplicate game names
+    # Remove duplicate names
     # --------------------------------------------------------
 
     recommendations = []
@@ -279,6 +381,7 @@ def recommend_games(
         )
 
         if name_key in used_names:
+
             continue
 
         used_names.add(
@@ -287,7 +390,7 @@ def recommend_games(
 
 
         # ----------------------------------------------------
-        # Recommendation explanation
+        # Explanation
         # ----------------------------------------------------
 
         reasons = []
@@ -300,10 +403,17 @@ def recommend_games(
             )
 
 
-        if preference_scores[index] > 0:
+        if genre_scores[index] > 0:
 
             reasons.append(
-                "matches your preferences"
+                "matches your preferred genres"
+            )
+
+
+        if tag_scores[index] > 0:
+
+            reasons.append(
+                "matches your preferred play style"
             )
 
 
@@ -335,6 +445,16 @@ def recommend_games(
                 4
             ),
 
+            "genre_score": round(
+                float(genre_scores[index]),
+                4
+            ),
+
+            "tag_score": round(
+                float(tag_scores[index]),
+                4
+            ),
+
             "preference_score": round(
                 float(preference_scores[index]),
                 4
@@ -355,6 +475,7 @@ def recommend_games(
 
 
         if len(recommendations) == top_k:
+
             break
 
 
@@ -362,7 +483,7 @@ def recommend_games(
 
 
 # ============================================================
-# 4. TEST THE FINAL RECOMMENDER
+# 4. TEST FINAL RECOMMENDER
 # ============================================================
 
 if __name__ == "__main__":
@@ -380,38 +501,52 @@ if __name__ == "__main__":
     )
 
 
-    # Example user
     played_games = [
+
         "Counter-Strike 2",
+
         "PUBG: BATTLEGROUNDS"
+
     ]
 
 
     preferred_genres = [
+
         "Action",
+
         "Shooter",
+
         "Multiplayer"
+
     ]
 
 
     preferred_tags = [
+
         "FPS",
+
         "Competitive",
+
         "Online Multiplayer"
+
     ]
 
 
-    # Generate recommendations
     recommendations = recommend_games(
+
         played_games,
+
         preferred_genres,
+
         preferred_tags,
+
         top_k=5
+
     )
 
 
     # --------------------------------------------------------
-    # Display results
+    # Display
     # --------------------------------------------------------
 
     print(
@@ -420,8 +555,11 @@ if __name__ == "__main__":
 
 
     for number, recommendation in enumerate(
+
         recommendations,
+
         start=1
+
     ):
 
         print(
@@ -438,6 +576,20 @@ if __name__ == "__main__":
             "   Content similarity:",
             recommendation[
                 "content_similarity"
+            ]
+        )
+
+        print(
+            "   Genre score:",
+            recommendation[
+                "genre_score"
+            ]
+        )
+
+        print(
+            "   Tag score:",
+            recommendation[
+                "tag_score"
             ]
         )
 

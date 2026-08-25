@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import joblib
 
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -18,7 +19,7 @@ print("Original dataset:", games.shape)
 
 
 # ============================================================
-# 2. REMOVE DUPLICATE GAMES
+# 2. CLEAN GAME NAMES
 # ============================================================
 
 games["Name"] = (
@@ -28,16 +29,24 @@ games["Name"] = (
     .str.strip()
 )
 
+
+# ============================================================
+# 3. REMOVE DUPLICATES
+# ============================================================
+
 games = games.drop_duplicates(
     subset=["Name"],
     keep="first"
 ).reset_index(drop=True)
 
-print("After removing duplicates:", games.shape)
+print(
+    "After removing duplicates:",
+    games.shape
+)
 
 
 # ============================================================
-# 3. CLEAN TEXT FEATURES
+# 4. CLEAN TEXT FEATURES
 # ============================================================
 
 text_columns = [
@@ -58,7 +67,7 @@ for column in text_columns:
 
 
 # ============================================================
-# 4. CREATE COMBINED FEATURES
+# 5. CREATE COMBINED FEATURES
 # ============================================================
 
 games["combined_features"] = (
@@ -73,7 +82,7 @@ games["combined_features"] = (
 
 
 # ============================================================
-# 5. CREATE TF-IDF MODEL
+# 6. CREATE TF-IDF
 # ============================================================
 
 print("\nCreating TF-IDF model...")
@@ -95,7 +104,90 @@ print(
 
 
 # ============================================================
-# 6. SAVE TF-IDF VECTORIZER
+# 7. PREPARE REVIEW DATA
+# ============================================================
+
+games["Positive"] = pd.to_numeric(
+    games["Positive"],
+    errors="coerce"
+).fillna(0)
+
+games["Negative"] = pd.to_numeric(
+    games["Negative"],
+    errors="coerce"
+).fillna(0)
+
+
+# ============================================================
+# 8. CALCULATE REVIEW QUALITY
+# ============================================================
+
+total_reviews = (
+    games["Positive"] +
+    games["Negative"]
+)
+
+games["has_reviews"] = (
+    total_reviews > 0
+)
+
+games["positive_ratio"] = np.where(
+    total_reviews > 0,
+    games["Positive"] / total_reviews,
+    0
+)
+
+
+# Review strength
+games["review_strength"] = np.log1p(
+    total_reviews
+)
+
+max_strength = games["review_strength"].max()
+
+if max_strength > 0:
+
+    games["review_strength"] = (
+        games["review_strength"] /
+        max_strength
+    )
+
+
+# Final quality score
+games["quality_score"] = (
+    games["positive_ratio"] *
+    games["review_strength"]
+)
+
+
+# ============================================================
+# 9. NORMALIZE QUALITY SCORE
+# ============================================================
+
+reviewed = games["has_reviews"]
+
+if reviewed.any():
+
+    max_quality = games.loc[
+        reviewed,
+        "quality_score"
+    ].max()
+
+    if max_quality > 0:
+
+        games.loc[
+            reviewed,
+            "quality_score"
+        ] = (
+            games.loc[
+                reviewed,
+                "quality_score"
+            ] / max_quality
+        )
+
+
+# ============================================================
+# 10. SAVE TF-IDF VECTORIZER
 # ============================================================
 
 joblib.dump(
@@ -109,7 +201,7 @@ print(
 
 
 # ============================================================
-# 7. SAVE TF-IDF MATRIX
+# 11. SAVE TF-IDF MATRIX
 # ============================================================
 
 joblib.dump(
@@ -123,7 +215,7 @@ print(
 
 
 # ============================================================
-# 8. SAVE GAME DATA
+# 12. SAVE COMPLETE GAME DATA
 # ============================================================
 
 games.to_pickle(
@@ -136,7 +228,26 @@ print(
 
 
 # ============================================================
-# 9. TRAINING COMPLETE
+# 13. VERIFY IMPORTANT COLUMNS
+# ============================================================
+
+print(
+    "\nSaved game data columns:"
+)
+
+print(
+    "quality_score:",
+    "quality_score" in games.columns
+)
+
+print(
+    "has_reviews:",
+    "has_reviews" in games.columns
+)
+
+
+# ============================================================
+# 14. COMPLETE
 # ============================================================
 
 print(
@@ -144,25 +255,9 @@ print(
 )
 
 print(
-    "MODEL TRAINING AND SAVING COMPLETE"
+    "FINAL MODEL DATA SAVED SUCCESSFULLY"
 )
 
 print(
     "========================================"
-)
-
-print(
-    "\nSaved files:"
-)
-
-print(
-    "1. models/tfidf_vectorizer.pkl"
-)
-
-print(
-    "2. models/tfidf_matrix.pkl"
-)
-
-print(
-    "3. models/games_data.pkl"
 )
