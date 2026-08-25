@@ -26,7 +26,24 @@ print("Dataset shape:", games.shape)
 
 
 # ============================================================
-# 2. CLEAN TEXT FEATURES
+# 2. REMOVE DUPLICATE GAME NAMES
+# ============================================================
+
+before = len(games)
+
+games = games.drop_duplicates(
+    subset=["Name"],
+    keep="first"
+).reset_index(drop=True)
+
+after = len(games)
+
+print("Duplicate game entries removed:", before - after)
+print("Unique games:", after)
+
+
+# ============================================================
+# 3. CLEAN TEXT FEATURES
 # ============================================================
 
 text_columns = [
@@ -46,7 +63,7 @@ for column in text_columns:
 
 
 # ============================================================
-# 3. CREATE COMBINED FEATURES
+# 4. CREATE COMBINED FEATURES
 # ============================================================
 
 games["combined_features"] = (
@@ -61,7 +78,7 @@ games["combined_features"] = (
 
 
 # ============================================================
-# 4. CREATE TF-IDF
+# 5. TF-IDF
 # ============================================================
 
 tfidf = TfidfVectorizer(
@@ -74,24 +91,18 @@ tfidf_matrix = tfidf.fit_transform(
     games["combined_features"]
 )
 
-print(
-    "TF-IDF matrix shape:",
-    tfidf_matrix.shape
-)
+print("TF-IDF matrix shape:", tfidf_matrix.shape)
 
 
 # ============================================================
-# 5. RECOMMENDATION FUNCTION
+# 6. RECOMMENDATION FUNCTION
 # ============================================================
 
 def recommend_games(played_games, top_k=5):
 
-    # --------------------------------------------------------
-    # Find games in dataset
-    # --------------------------------------------------------
-
     played_indices = []
 
+    # Find played games
     for game_name in played_games:
 
         matches = games[
@@ -106,19 +117,12 @@ def recommend_games(played_games, top_k=5):
             )
 
 
-    # --------------------------------------------------------
-    # Check
-    # --------------------------------------------------------
-
     if len(played_indices) == 0:
 
         return [], 0
 
 
-    # --------------------------------------------------------
-    # Create user vector
-    # --------------------------------------------------------
-
+    # Create user profile
     user_vector = tfidf_matrix[
         played_indices
     ].mean(axis=0)
@@ -128,46 +132,59 @@ def recommend_games(played_games, top_k=5):
     )
 
 
-    # --------------------------------------------------------
     # Calculate similarity
-    # --------------------------------------------------------
-
     scores = cosine_similarity(
         user_vector,
         tfidf_matrix
     ).flatten()
 
 
-    # --------------------------------------------------------
-    # Remove already played games
-    # --------------------------------------------------------
-
+    # Remove played games
     scores[played_indices] = -1
 
 
-    # --------------------------------------------------------
-    # Get recommendations
-    # --------------------------------------------------------
+    # Get more candidates first
+    candidate_count = min(
+        top_k * 3,
+        len(games)
+    )
 
-    top_indices = np.argsort(
+    candidate_indices = np.argsort(
         scores
-    )[::-1][:top_k]
+    )[::-1][:candidate_count]
 
 
+    # Remove duplicate names
     recommendations = []
+    used_names = set()
 
-    for index in top_indices:
+    for index in candidate_indices:
+
+        game_name = games.loc[
+            index,
+            "Name"
+        ]
+
+        name_key = game_name.lower().strip()
+
+        if name_key in used_names:
+            continue
+
+        used_names.add(name_key)
 
         recommendations.append(
-            games.loc[index, "Name"]
+            game_name
         )
+
+        if len(recommendations) == top_k:
+            break
 
 
     return recommendations, len(played_indices)
 
 
 # ============================================================
-# 6. TEST PROFILE 1 — FPS / ACTION
+# 7. TEST PROFILES
 # ============================================================
 
 profile_1 = [
@@ -175,20 +192,10 @@ profile_1 = [
     "PUBG: BATTLEGROUNDS"
 ]
 
-
-# ============================================================
-# 7. TEST PROFILE 2 — USE ACTUAL DATASET GAMES
-# ============================================================
-
 profile_2 = [
     "MORDHAU",
     "War Thunder"
 ]
-
-
-# ============================================================
-# 8. TEST PROFILE 3
-# ============================================================
 
 profile_3 = [
     "Team Fortress 2",
@@ -197,7 +204,7 @@ profile_3 = [
 
 
 # ============================================================
-# 9. EVALUATION FUNCTION
+# 8. EVALUATION FUNCTION
 # ============================================================
 
 def evaluate_profile(
@@ -213,32 +220,23 @@ def evaluate_profile(
         "\n================================================"
     )
 
-    print(
-        profile_name
-    )
+    print(profile_name)
 
     print(
         "================================================"
     )
 
-    print(
-        "\nPlayed games:"
-    )
+    print("\nPlayed games:")
 
     for game in played_games:
-        print(
-            "-",
-            game
-        )
+        print("-", game)
 
     print(
         "\nMatched games:",
         matched
     )
 
-    print(
-        "\nTop recommendations:"
-    )
+    print("\nTop recommendations:")
 
     for number, game in enumerate(
         recommendations,
@@ -249,12 +247,11 @@ def evaluate_profile(
             f"{number}. {game}"
         )
 
-
     return recommendations
 
 
 # ============================================================
-# 10. RUN TESTS
+# 9. RUN TESTS
 # ============================================================
 
 recommendations_1 = evaluate_profile(
@@ -274,23 +271,9 @@ recommendations_3 = evaluate_profile(
 
 
 # ============================================================
-# 11. SIMPLE RELEVANCE CHECK
+# 10. RELEVANCE KEYWORDS
 # ============================================================
 
-print(
-    "\n================================================"
-)
-
-print(
-    "SIMPLE EVALUATION"
-)
-
-print(
-    "================================================"
-)
-
-
-# Keywords that represent relevant games
 relevant_keywords = [
     "action",
     "shooter",
@@ -300,6 +283,10 @@ relevant_keywords = [
     "competitive"
 ]
 
+
+# ============================================================
+# 11. CALCULATE RELEVANCE
+# ============================================================
 
 def calculate_relevance(
     recommendations
@@ -327,18 +314,12 @@ def calculate_relevance(
             str(row["Categories"])
         ).lower()
 
-        found = False
-
         for keyword in relevant_keywords:
 
             if keyword in text:
 
-                found = True
+                relevant_count += 1
                 break
-
-        if found:
-
-            relevant_count += 1
 
 
     return (
@@ -348,48 +329,101 @@ def calculate_relevance(
 
 
 # ============================================================
-# 12. CALCULATE RESULTS
+# 12. PRECISION@5
 # ============================================================
 
-score_1 = calculate_relevance(
+def precision_at_5(
+    recommendations
+):
+
+    if len(recommendations) == 0:
+        return 0
+
+    relevant = 0
+
+    for game in recommendations:
+
+        game_row = games[
+            games["Name"] == game
+        ]
+
+        if game_row.empty:
+            continue
+
+        row = game_row.iloc[0]
+
+        text = (
+            str(row["Genres"]) + " " +
+            str(row["Tags"]) + " " +
+            str(row["Categories"])
+        ).lower()
+
+        is_relevant = any(
+            keyword in text
+            for keyword in relevant_keywords
+        )
+
+        if is_relevant:
+            relevant += 1
+
+
+    return relevant / 5
+
+
+# ============================================================
+# 13. EVALUATION RESULTS
+# ============================================================
+
+print(
+    "\n================================================"
+)
+
+print("EVALUATION RESULTS")
+
+print(
+    "================================================"
+)
+
+
+precision_1 = precision_at_5(
     recommendations_1
 )
 
-score_2 = calculate_relevance(
+precision_2 = precision_at_5(
     recommendations_2
 )
 
-score_3 = calculate_relevance(
+precision_3 = precision_at_5(
     recommendations_3
 )
 
 
 print(
-    "\nProfile 1 relevance:",
-    f"{score_1:.2f}"
+    "\nProfile 1 Precision@5:",
+    f"{precision_1:.2f}"
 )
 
 print(
-    "Profile 2 relevance:",
-    f"{score_2:.2f}"
+    "Profile 2 Precision@5:",
+    f"{precision_2:.2f}"
 )
 
 print(
-    "Profile 3 relevance:",
-    f"{score_3:.2f}"
+    "Profile 3 Precision@5:",
+    f"{precision_3:.2f}"
 )
 
 
-average_score = (
-    score_1 +
-    score_2 +
-    score_3
+average_precision = (
+    precision_1 +
+    precision_2 +
+    precision_3
 ) / 3
 
 
 print(
-    "\nAverage relevance:",
-    f"{average_score:.2f}"
+    "\nAverage Precision@5:",
+    f"{average_precision:.2f}"
 )
 
 
