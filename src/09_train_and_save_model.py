@@ -1,25 +1,136 @@
 import pandas as pd
 import numpy as np
+import csv
 import joblib
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 
 # ============================================================
-# 1. LOAD DATASET
+# 1. LOAD DATASET WITH CORRECTED HEADER
 # ============================================================
 
-games = pd.read_csv(
-    "dataset/games.csv",
-    index_col=False,
-    low_memory=False
+print("Loading dataset...")
+
+csv_path = "dataset/games.csv"
+
+
+with open(
+    csv_path,
+    "r",
+    encoding="utf-8-sig",
+    errors="replace",
+    newline=""
+) as file:
+
+    reader = csv.reader(file)
+
+    header = next(reader)
+
+    rows = []
+
+    for row in reader:
+
+        if len(row) == 40:
+
+            rows.append(row)
+
+        elif len(row) == 39:
+
+            # Keep normally structured rows
+            rows.append(row)
+
+        else:
+
+            # Skip unexpected rows
+            continue
+
+
+# ============================================================
+# 2. FIX THE BROKEN HEADER
+# ============================================================
+
+# Original header contains:
+#
+# Price
+# DiscountDLC count
+# About the game
+#
+# But actual rows contain:
+#
+# Price
+# Discount
+# DLC count
+# About the game
+
+
+fixed_header = []
+
+for column in header:
+
+    if column == "DiscountDLC count":
+
+        fixed_header.append("Discount")
+        fixed_header.append("DLC count")
+
+    else:
+
+        fixed_header.append(column)
+
+
+print(
+    "Original header columns:",
+    len(header)
 )
 
-print("Original dataset:", games.shape)
+print(
+    "Corrected header columns:",
+    len(fixed_header)
+)
 
 
 # ============================================================
-# 2. CLEAN GAME NAMES
+# 3. ALIGN DATA WITH CORRECTED HEADER
+# ============================================================
+
+corrected_rows = []
+
+for row in rows:
+
+    if len(row) == 40:
+
+        corrected_rows.append(row)
+
+    elif len(row) == 39:
+
+        # This should rarely happen.
+        # Insert an empty DLC count field.
+
+        row = (
+            row[:8]
+            +
+            [""]
+            +
+            row[8:]
+        )
+
+        corrected_rows.append(row)
+
+
+games = pd.DataFrame(
+    corrected_rows,
+    columns=fixed_header
+)
+
+
+print(
+    "\nOriginal dataset:",
+    games.shape
+)
+
+
+# ============================================================
+# 4. CLEAN GAME NAMES
 # ============================================================
 
 games["Name"] = (
@@ -31,13 +142,23 @@ games["Name"] = (
 
 
 # ============================================================
-# 3. REMOVE DUPLICATES
+# 5. REMOVE EMPTY NAMES
+# ============================================================
+
+games = games[
+    games["Name"] != ""
+].copy()
+
+
+# ============================================================
+# 6. REMOVE DUPLICATES
 # ============================================================
 
 games = games.drop_duplicates(
     subset=["Name"],
     keep="first"
 ).reset_index(drop=True)
+
 
 print(
     "After removing duplicates:",
@@ -46,7 +167,7 @@ print(
 
 
 # ============================================================
-# 4. CLEAN TEXT FEATURES
+# 7. CLEAN TEXT FEATURES
 # ============================================================
 
 text_columns = [
@@ -55,6 +176,7 @@ text_columns = [
     "Tags",
     "Categories"
 ]
+
 
 for column in text_columns:
 
@@ -67,25 +189,36 @@ for column in text_columns:
 
 
 # ============================================================
-# 5. CREATE COMBINED FEATURES
+# 8. CREATE COMBINED FEATURES
 # ============================================================
 
 games["combined_features"] = (
-    games["Name"] + " " +
-    games["Genres"] + " " +
-    games["Genres"] + " " +
-    games["Tags"] + " " +
-    games["Tags"] + " " +
-    games["Categories"] + " " +
-    games["About the game"]
+
+    games["Name"] + " "
+
+    + games["Genres"] + " "
+
+    + games["Genres"] + " "
+
+    + games["Tags"] + " "
+
+    + games["Tags"] + " "
+
+    + games["Categories"] + " "
+
+    + games["About the game"]
+
 )
 
 
 # ============================================================
-# 6. CREATE TF-IDF
+# 9. CREATE TF-IDF MODEL
 # ============================================================
 
-print("\nCreating TF-IDF model...")
+print(
+    "\nCreating TF-IDF model..."
+)
+
 
 tfidf = TfidfVectorizer(
     stop_words="english",
@@ -93,9 +226,11 @@ tfidf = TfidfVectorizer(
     ngram_range=(1, 2)
 )
 
+
 tfidf_matrix = tfidf.fit_transform(
     games["combined_features"]
 )
+
 
 print(
     "TF-IDF matrix:",
@@ -104,13 +239,14 @@ print(
 
 
 # ============================================================
-# 7. PREPARE REVIEW DATA
+# 10. PREPARE REVIEW DATA
 # ============================================================
 
 games["Positive"] = pd.to_numeric(
     games["Positive"],
     errors="coerce"
 ).fillna(0)
+
 
 games["Negative"] = pd.to_numeric(
     games["Negative"],
@@ -119,52 +255,154 @@ games["Negative"] = pd.to_numeric(
 
 
 # ============================================================
-# 8. CALCULATE REVIEW QUALITY
+# 11. VERIFY IMPORTANT GAMES
+# ============================================================
+
+print(
+    "\n========================================"
+)
+
+print(
+    "REVIEW DATA VERIFICATION"
+)
+
+print(
+    "========================================"
+)
+
+
+counter_strike = games[
+    games["Name"].str.lower()
+    ==
+    "counter-strike 2"
+]
+
+
+if not counter_strike.empty:
+
+    print(
+        "\nCounter-Strike 2:"
+    )
+
+    print(
+        counter_strike[
+            [
+                "Name",
+                "Positive",
+                "Negative"
+            ]
+        ].to_string(
+            index=False
+        )
+    )
+
+
+pubg = games[
+    games["Name"].str.lower()
+    ==
+    "pubg: battlegrounds"
+]
+
+
+if not pubg.empty:
+
+    print(
+        "\nPUBG: BATTLEGROUNDS:"
+    )
+
+    print(
+        pubg[
+            [
+                "Name",
+                "Positive",
+                "Negative"
+            ]
+        ].to_string(
+            index=False
+        )
+    )
+
+
+# ============================================================
+# 12. REVIEW FEATURES
 # ============================================================
 
 total_reviews = (
-    games["Positive"] +
+
+    games["Positive"]
+
+    +
+
     games["Negative"]
+
 )
+
 
 games["has_reviews"] = (
     total_reviews > 0
 )
 
+
 games["positive_ratio"] = np.where(
+
     total_reviews > 0,
-    games["Positive"] / total_reviews,
+
+    games["Positive"] /
+    total_reviews,
+
     0
+
 )
 
 
-# Review strength
+# ============================================================
+# 13. REVIEW STRENGTH
+# ============================================================
+
 games["review_strength"] = np.log1p(
     total_reviews
 )
 
-max_strength = games["review_strength"].max()
+
+max_strength = games[
+    "review_strength"
+].max()
+
 
 if max_strength > 0:
 
     games["review_strength"] = (
-        games["review_strength"] /
+
+        games["review_strength"]
+        /
         max_strength
+
     )
 
 
-# Final quality score
+# ============================================================
+# 14. BASIC QUALITY SCORE
+# ============================================================
+
 games["quality_score"] = (
-    games["positive_ratio"] *
+
+    games["positive_ratio"]
+
+    *
+
     games["review_strength"]
+
 )
 
 
 # ============================================================
-# 9. NORMALIZE QUALITY SCORE
+# 15. NORMALIZE QUALITY SCORE
 # ============================================================
 
-reviewed = games["has_reviews"]
+reviewed = games[
+    "has_reviews"
+]
+
 
 if reviewed.any():
 
@@ -173,21 +411,69 @@ if reviewed.any():
         "quality_score"
     ].max()
 
+
     if max_quality > 0:
 
         games.loc[
             reviewed,
             "quality_score"
         ] = (
+
             games.loc[
                 reviewed,
                 "quality_score"
-            ] / max_quality
+            ]
+
+            /
+
+            max_quality
+
         )
 
 
 # ============================================================
-# 10. SAVE TF-IDF VECTORIZER
+# 16. DATA CHECK
+# ============================================================
+
+print(
+    "\n========================================"
+)
+
+print(
+    "DATA CHECK"
+)
+
+print(
+    "========================================"
+)
+
+
+print(
+    "Games with reviews:",
+    int(
+        games["has_reviews"].sum()
+    )
+)
+
+
+print(
+    "Total positive reviews:",
+    int(
+        games["Positive"].sum()
+    )
+)
+
+
+print(
+    "Total negative reviews:",
+    int(
+        games["Negative"].sum()
+    )
+)
+
+
+# ============================================================
+# 17. SAVE TF-IDF VECTORIZER
 # ============================================================
 
 joblib.dump(
@@ -195,13 +481,14 @@ joblib.dump(
     "models/tfidf_vectorizer.pkl"
 )
 
+
 print(
-    "Saved: models/tfidf_vectorizer.pkl"
+    "\nSaved: models/tfidf_vectorizer.pkl"
 )
 
 
 # ============================================================
-# 11. SAVE TF-IDF MATRIX
+# 18. SAVE TF-IDF MATRIX
 # ============================================================
 
 joblib.dump(
@@ -209,18 +496,20 @@ joblib.dump(
     "models/tfidf_matrix.pkl"
 )
 
+
 print(
     "Saved: models/tfidf_matrix.pkl"
 )
 
 
 # ============================================================
-# 12. SAVE COMPLETE GAME DATA
+# 19. SAVE GAME DATA
 # ============================================================
 
 games.to_pickle(
     "models/games_data.pkl"
 )
+
 
 print(
     "Saved: models/games_data.pkl"
@@ -228,26 +517,7 @@ print(
 
 
 # ============================================================
-# 13. VERIFY IMPORTANT COLUMNS
-# ============================================================
-
-print(
-    "\nSaved game data columns:"
-)
-
-print(
-    "quality_score:",
-    "quality_score" in games.columns
-)
-
-print(
-    "has_reviews:",
-    "has_reviews" in games.columns
-)
-
-
-# ============================================================
-# 14. COMPLETE
+# 20. FINAL
 # ============================================================
 
 print(
@@ -260,4 +530,15 @@ print(
 
 print(
     "========================================"
+)
+
+
+print(
+    "Games:",
+    len(games)
+)
+
+print(
+    "TF-IDF matrix:",
+    tfidf_matrix.shape
 )

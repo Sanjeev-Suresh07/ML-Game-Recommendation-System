@@ -19,8 +19,9 @@ tfidf_matrix = joblib.load(
     "models/tfidf_matrix.pkl"
 )
 
+# Use V3 data for improved quality scores
 games = pd.read_pickle(
-    "models/games_data.pkl"
+    "models/games_data_v3.pkl"
 )
 
 print("Recommendation model loaded.")
@@ -28,7 +29,35 @@ print("Games available:", len(games))
 
 
 # ============================================================
-# 2. RECOMMENDATION FUNCTION
+# 2. PREPARE QUALITY AND POPULARITY
+# ============================================================
+
+# Make sure required columns exist
+
+if "quality_score_v3" not in games.columns:
+
+    games["quality_score_v3"] = 0.0
+
+
+if "popularity_v3" not in games.columns:
+
+    games["popularity_v3"] = 0.0
+
+
+games["quality_score_v3"] = pd.to_numeric(
+    games["quality_score_v3"],
+    errors="coerce"
+).fillna(0)
+
+
+games["popularity_v3"] = pd.to_numeric(
+    games["popularity_v3"],
+    errors="coerce"
+).fillna(0)
+
+
+# ============================================================
+# 3. RECOMMENDATION FUNCTION
 # ============================================================
 
 def recommend_games(
@@ -39,7 +68,7 @@ def recommend_games(
 ):
 
     # --------------------------------------------------------
-    # Find games played by user
+    # Find played games
     # --------------------------------------------------------
 
     matched_indices = []
@@ -110,7 +139,7 @@ def recommend_games(
 
 
     # --------------------------------------------------------
-    # Create played game set
+    # Played game set
     # --------------------------------------------------------
 
     played_set = set(
@@ -133,12 +162,16 @@ def recommend_games(
         ).strip()
 
 
-        # Skip games already played
+        # Skip already played games
 
         if game_name.lower() in played_set:
 
             continue
 
+
+        # ----------------------------------------------------
+        # Game information
+        # ----------------------------------------------------
 
         genres = str(
             games.iloc[i].get(
@@ -146,7 +179,6 @@ def recommend_games(
                 ""
             )
         )
-
 
         tags = str(
             games.iloc[i].get(
@@ -221,19 +253,55 @@ def recommend_games(
 
 
         # ----------------------------------------------------
-        # Final score
+        # Content similarity
         # ----------------------------------------------------
 
-        content_score = similarities[i]
+        content_score = float(
+            similarities[i]
+        )
 
+
+        # ----------------------------------------------------
+        # Quality score
+        # ----------------------------------------------------
+
+        quality_score = float(
+            games.iloc[i][
+                "quality_score_v3"
+            ]
+        )
+
+
+        # ----------------------------------------------------
+        # Popularity score
+        # ----------------------------------------------------
+
+        popularity_score = float(
+            games.iloc[i][
+                "popularity_v3"
+            ]
+        )
+
+
+        # ====================================================
+        # HYBRID FINAL SCORE
+        # ====================================================
 
         final_score = (
 
-            0.70 * content_score
+            0.55 * content_score
 
             +
 
-            0.30 * preference_score
+            0.20 * preference_score
+
+            +
+
+            0.15 * quality_score
+
+            +
+
+            0.10 * popularity_score
 
         )
 
@@ -266,6 +334,20 @@ def recommend_games(
             )
 
 
+        if quality_score >= 0.70:
+
+            reasons.append(
+                "Highly rated by players"
+            )
+
+
+        if popularity_score >= 0.70:
+
+            reasons.append(
+                "Popular among players"
+            )
+
+
         if len(reasons) == 0:
 
             reasons.append(
@@ -282,27 +364,27 @@ def recommend_games(
             "name": game_name,
 
             "score": round(
-                float(final_score),
+                final_score,
                 4
             ),
 
             "content_similarity": round(
-                float(content_score),
-                4
-            ),
-
-            "genre_score": round(
-                float(genre_score),
-                4
-            ),
-
-            "tag_score": round(
-                float(tag_score),
+                content_score,
                 4
             ),
 
             "preference_score": round(
-                float(preference_score),
+                preference_score,
+                4
+            ),
+
+            "quality_score": round(
+                quality_score,
+                4
+            ),
+
+            "popularity_score": round(
+                popularity_score,
                 4
             ),
 
@@ -321,8 +403,6 @@ def recommend_games(
     )
 
 
-    # Keep only requested number
-
     results = results[:top_k]
 
 
@@ -334,32 +414,35 @@ def recommend_games(
 
         "success": True,
 
-        "message": "Recommendations generated successfully.",
+        "message":
+        "Hybrid recommendations generated successfully.",
 
-        "played_games": played_games,
+        "played_games":
+        played_games,
 
-        "preferred_genres": preferred_genres,
+        "preferred_genres":
+        preferred_genres,
 
-        "preferred_tags": preferred_tags,
+        "preferred_tags":
+        preferred_tags,
 
-        "recommendations": results
+        "recommendations":
+        results
 
     }
 
 
 # ============================================================
-# 3. LOCAL TEST
+# 4. LOCAL TEST
 # ============================================================
 
 if __name__ == "__main__":
 
     print()
     print("========================================")
-    print("RECOMMENDATION API TEST")
+    print("HYBRID RECOMMENDATION API TEST")
     print("========================================")
 
-
-    # Example user
 
     played_games = [
 
@@ -447,6 +530,16 @@ if __name__ == "__main__":
         )
 
         print(
+            "Quality score:",
+            game["quality_score"]
+        )
+
+        print(
+            "Popularity score:",
+            game["popularity_score"]
+        )
+
+        print(
             "Why recommended:"
         )
 
@@ -461,8 +554,14 @@ if __name__ == "__main__":
 
     print()
 
-    print("========================================")
+    print(
+        "========================================"
+    )
 
-    print("RECOMMENDATION API TEST COMPLETE")
+    print(
+        "HYBRID RECOMMENDATION API TEST COMPLETE"
+    )
 
-    print("========================================")
+    print(
+        "========================================"
+    )
