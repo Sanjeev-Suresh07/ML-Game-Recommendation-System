@@ -1,7 +1,5 @@
 ## Steam dataset
 
-The cleaned CSV is included in the working project folder as `games.csv` (downloaded from the Kaggle dataset page):
+`games.csv.gz` is a compressed, 89,618-row copy of the cleaned Steam catalog used by SIDEQUEST. The app can also read an uncompressed `games.csv` file for local development.
 
-https://www.kaggle.com/datasets/artermiloff/steam-games-dataset
-
-Kaggle's `games_march2025_cleaned.csv` contains 90,000+ Steam games and is about 469 MB. Kaggle lists the dataset under the MIT license; see the dataset page for attribution and license details. The CSV is ignored by Git and excluded from the shareable ZIP. For a fresh Git checkout or ZIP, download the cleaned file, rename it to `games.csv`, and place it in this folder.
+Source: [Steam Games Dataset 2025](https://www.kaggle.com/datasets/artermiloff/steam-games-dataset), by Artemiy Ermilov and collaborators. Data snapshot: March 2025. The Kaggle page lists the dataset under the MIT License.

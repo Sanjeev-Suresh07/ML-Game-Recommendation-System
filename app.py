@@ -13,7 +13,9 @@ from src.recommender import GameRecommender, demo_games
 
 
 ROOT = Path(__file__).parent
-DATA_PATH = ROOT / "dataset" / "games.csv"
+DATA_PATH = ROOT / "dataset" / "games.csv.gz"
+if not DATA_PATH.exists():
+    DATA_PATH = ROOT / "dataset" / "games.csv"
 DATA_COLUMNS = [
     "appid", "name", "release_date", "price", "recommendations", "positive",
     "negative", "header_image", "categories", "genres", "tags", "short_description",
@@ -138,11 +140,11 @@ def load_catalog() -> pd.DataFrame:
 @st.cache_resource(show_spinner=False)
 def build_model() -> GameRecommender:
     source = load_catalog()
-    if len(source) > 25000:
+    if len(source) > 8000:
         popularity = pd.to_numeric(source["recommendations"], errors="coerce").fillna(0)
-        head = source.loc[popularity.nlargest(12000).index]
+        head = source.loc[popularity.nlargest(4000).index]
         rest = source.drop(index=head.index)
-        tail = rest.sample(n=min(13000, len(rest)), random_state=21)
+        tail = rest.sample(n=min(4000, len(rest)), random_state=21)
         training = pd.concat([head, tail]).drop_duplicates("name")
     else:
         training = source

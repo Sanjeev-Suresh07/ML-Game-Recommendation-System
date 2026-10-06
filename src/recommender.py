@@ -105,12 +105,11 @@ class GameRecommender:
         self.games, self.title_column = prepare_games(raw)
         self.catalog = catalog if catalog is not None else raw
         self.catalog_title_column = _find_column(self.catalog.columns, TITLE_COLUMNS) or self.title_column
-        documents = [self._term_counts(profile) for profile in self.games["_profile"]]
         document_frequency: Counter[str] = Counter()
-        for terms in documents:
-            document_frequency.update(terms.keys())
+        for profile in self.games["_profile"]:
+            document_frequency.update(self._term_counts(profile).keys())
 
-        total = len(documents)
+        total = len(self.games)
         lower_bound = 2
         upper_bound = max(2, math.floor(total * 0.92))
         common_terms = [(term, frequency) for term, frequency in document_frequency.items()
@@ -121,7 +120,8 @@ class GameRecommender:
                     for term, frequency in common_terms}
 
         self.vectors: list[dict[str, float]] = []
-        for terms in documents:
+        for profile in self.games["_profile"]:
+            terms = self._term_counts(profile)
             weighted = {term: (1 + math.log(count)) * self.idf[term]
                         for term, count in terms.items() if term in self.idf}
             norm = math.sqrt(sum(weight * weight for weight in weighted.values())) or 1.0
