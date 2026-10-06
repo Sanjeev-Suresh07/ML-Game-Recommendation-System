@@ -4,7 +4,7 @@ This team project explores recommendation models for Steam games and includes **
 
 ## What you can do
 
-- Browse and search the Steam catalog with game artwork and descriptions.
+- Browse and search the Steam catalog with game artwork, a cursor spotlight reveal, and ambient cyber-green effects.
 - Choose a genre to get content-based recommendations, or request titles similar to a selected game.
 - Explore the project's data preparation, feature engineering, KNN, hybrid recommendation, model evaluation, and API experiments in `src/`.
 
